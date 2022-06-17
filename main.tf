@@ -5,10 +5,11 @@ locals {
   security_group_enabled = module.this.enabled && var.security_group_enabled
   user_names             = keys(var.sftp_users)
   user_names_map         = { for idx, user in local.user_names : idx => user }
+  is_s3                  = var.domain == "S3"
 }
 
 data "aws_s3_bucket" "landing" {
-  count = local.enabled ? 1 : 0
+  count = local.enabled && local.is_s3 ? 1 : 0
 
   bucket = var.s3_bucket_name
 }
@@ -68,6 +69,16 @@ resource "aws_transfer_user" "default" {
       target = "/${var.s3_bucket_name}/$${Transfer:UserName}"
     }
   }
+
+  dynamic "posix_profile" {
+    for_each = local.is_s3 ? [] : [1]
+
+    content {
+      gid = 0
+      uid = each.value.unix_uid
+    }
+  }
+      
 
   tags = module.this.tags
 }
@@ -140,8 +151,27 @@ data "aws_iam_policy_document" "assume_role_policy" {
   }
 }
 
+data "aws_iam_policy_document" "efs_access_for_sftp_users" {
+  for_each = local.enabled && !local.is_s3 ? local.user_names_map : {}
+
+  statement {
+    sid = "AllowEFSAccess"
+    effect = "Allow"
+    actions = [
+      "elasticfilesystem:ClientMount",
+      "elasticfilesystem:ClientWrite",
+      "elasticfilesystem:ClientRootAccess"
+    ]
+
+    resources = [
+      "arn:aws:elasticfilesystem:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:file-system/${var.s3_bucket_name}"
+    ]
+  }
+}
+
+
 data "aws_iam_policy_document" "s3_access_for_sftp_users" {
-  for_each = local.enabled ? local.user_names_map : {}
+  for_each = local.enabled && local.is_s3 ? local.user_names_map : {}
 
   statement {
     sid    = "AllowListingOfUserFolder"
@@ -201,7 +231,7 @@ resource "aws_iam_policy" "s3_access_for_sftp_users" {
   for_each = local.enabled ? local.user_names_map : {}
 
   name   = module.iam_label[index(local.user_names, each.value)].id
-  policy = data.aws_iam_policy_document.s3_access_for_sftp_users[index(local.user_names, each.value)].json
+  policy = (local.is_s3 ? data.aws_iam_policy_document.s3_access_for_sftp_users : data.aws_iam_policy_document.efs_access_for_sftp_users)[index(local.user_names, each.value)].json 
 }
 
 resource "aws_iam_role" "s3_access_for_sftp_users" {
@@ -298,7 +328,8 @@ EOF
 }
 
 resource "aws_cloudwatch_log_group" "push_to_kafka" {
-  name              = "/aws/lambda/push_to_kafka"
+  count = var.kafka_lambda_enabled ? 1 : 0
+  name = "/aws/lambda/${module.this.id}/push_to_kafka"
   retention_in_days = 14
 }
 
@@ -342,7 +373,7 @@ EOF
 	    "logs:PutLogEvents"
 	  ]
 	  Resource = [
-	    "${aws_cloudwatch_log_group.push_to_kafka.arn}:*"
+	    "${aws_cloudwatch_log_group.push_to_kafka[0].arn}:*"
 	  ]
 	}
       ]
