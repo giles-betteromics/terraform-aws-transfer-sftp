@@ -329,7 +329,7 @@ EOF
 
 resource "aws_cloudwatch_log_group" "push_to_kafka" {
   count = var.kafka_lambda_enabled ? 1 : 0
-  name = "/aws/lambda/${module.this.id}/push_to_kafka"
+  name = "/aws/lambda/push_to_kafka"
   retention_in_days = 14
 }
 
@@ -413,6 +413,55 @@ EOF
       ]
     })
   }
+  inline_policy {
+    name   = "AllowEFSAccess" 
+    policy = jsonencode(
+      {
+	Statement = [
+	  {
+	    Action   = [
+	      "elasticfilesystem:ClientWrite",
+	      "elasticfilesystem:ClientRootAccess",
+	      "elasticfilesystem:ClientMount",
+	    ]
+	    Effect   = "Allow"
+	    Resource = "arn:aws:elasticfilesystem:us-west-2:831078261596:file-system/fs-0d7a2f26c92ac1dbe"
+	    Sid      = "AllowEFSAccess"
+	  },
+	]
+	Version   = "2012-10-17"
+      }
+      ) 
+  }
+  inline_policy {
+    name   = "AllowS3Write" 
+    policy = jsonencode(
+      {
+	Statement = [
+	  {
+	    Action   = [
+	      "s3:ReplicateObject",
+	      "s3:PutObject",
+	      "s3:GetObjectAcl",
+	      "s3:GetObject",
+	      "s3:ListBucket",
+	      "s3:InitiateReplication",
+	      "s3:GetBucketAcl",
+	      "s3:PutBucketVersioning",
+	      "s3:GetObjectVersion",
+	    ]
+	    Effect   = "Allow"
+	    Resource = [
+	      "arn:aws:s3:::npm-prod-nm/*",
+	      "arn:aws:s3:::npm-prod-nm-qa/*",
+	    ]
+	    Sid      = "VisualEditor0"
+	  },
+	]
+	Version   = "2012-10-17"
+      }
+      )
+  }
 }
 
 resource "aws_lambda_function" "push_to_kafka" {
@@ -430,7 +479,29 @@ resource "aws_lambda_function" "push_to_kafka" {
     variables = {
       KAFKA_REST_SERVER = var.kafka_rest_server
       KAFKA_QUEUE = var.kafka_queue
+      EFS_KAFKA_ERRORS_LOCATION  = "kafka_errors"
+      EFS_MOUNT_LOCATION         = "/mnt/incoming"
+      EFS_PREFIX_ALLOW_LIST      = "nmohc_oncoemr/nmohc/documents,nmohc_oncoemr/nmohc/scheduling"
+      EFS_QUARANTINE_LOCATION    = "quarantine"
+      KAFKA_REST_SERVER_QA       = "kafka-rest-clinicalqa.npm.betteromics.com:8082"
+      KAFKA_TOPIC                = "hl7_npower_nmcc"
+      KAFKA_TOPIC_QA             = "hl7_npower_nmcc"
+      S3_DESTINATION_BUCKET      = "npm-prod-nm"
+      S3_DESTINATION_BUCKET_QA   = "npm-prod-nm-qa"
+      S3_DESTINATION_PREFIX      = "lambda_transfer"
+      SENTRY_DSN                 = "https://6e9c65f999a54a5caf42c75c3ab41d47@o444126.ingest.sentry.io/6523232"
+      SENTRY_SERVICE_NAME        = "ClinicalLambdaEtl"
+      SLEEP_TIME                 = "5"
+      TRANSFER_REGION            = "us-west-2"
+      VAULT_ADDR                 = "https://vault.corp.betteromics.com:8200"
+      VAULT_HMAC_KEY_NAME        = "push_to_s3"
+      VAULT_NAMESPACE            = "npmprod"
+      VAULT_ROLE                 = "dev"
     }
+  }
+  file_system_config {
+    arn              = "arn:aws:elasticfilesystem:us-west-2:831078261596:access-point/fsap-0fa8e667bde09fc08"
+    local_mount_path = "/mnt/incoming"
   }
 }
 
