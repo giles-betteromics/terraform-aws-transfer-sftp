@@ -475,10 +475,13 @@ resource "aws_lambda_function" "push_to_kafka" {
     security_group_ids = var.vpc_security_group_ids
     subnet_ids = var.vpc_private_subnet_ids
   }
+  memory_size = 512
+  timeout = 300
   environment {
     variables = {
       KAFKA_REST_SERVER = var.kafka_rest_server
-      KAFKA_QUEUE = var.kafka_queue
+      #      KAFKA_QUEUE = var.kafka_queue
+      EFS_ARCHIVE_FOLDER         = "archive"
       EFS_KAFKA_ERRORS_LOCATION  = "kafka_errors"
       EFS_MOUNT_LOCATION         = "/mnt/incoming"
       EFS_PREFIX_ALLOW_LIST      = "nmohc_oncoemr/nmohc/documents,nmohc_oncoemr/nmohc/scheduling"
@@ -512,6 +515,8 @@ resource "aws_transfer_workflow" "kafka" {
     custom_step_details {
       name = "Step0"
       target = aws_lambda_function.push_to_kafka[count.index].arn
+      source_file_location = "$${previous.file}"
+      timeout_seconds = 60
     }
     type = "CUSTOM"
   }
