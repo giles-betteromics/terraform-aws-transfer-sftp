@@ -66,7 +66,7 @@ resource "aws_transfer_user" "default" {
 
     content {
       entry  = "/"
-      target = "/${var.s3_bucket_name}/$${Transfer:UserName}"
+      target = "/${var.s3_bucket_name}/${each.value.user_name}"
     }
   }
 
